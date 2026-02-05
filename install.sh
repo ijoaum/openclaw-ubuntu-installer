@@ -499,13 +499,13 @@ app.post('/finish', (req, res) => {
     }
 });
 
-app.listen(PORT, '0.0.0.0', async () => {
-    const https = require('https');
-    https.get('https://ifconfig.me', (res) => {
-        let ip = '';
-        res.on('data', d => ip += d);
-        res.on('end', () => console.log(`🦞 Wizard rodando em http://${ip.trim()}`));
-    }).on('error', () => console.log(`🦞 Wizard rodando em http://0.0.0.0:${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+    try {
+        const ip = require('child_process').execSync('curl -s -4 icanhazip.com').toString().trim();
+        console.log('🦞 Wizard rodando em http://' + ip);
+    } catch (e) {
+        console.log('🦞 Wizard rodando na porta ' + PORT);
+    }
 });
 SERVER_EOF
 
