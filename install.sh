@@ -90,10 +90,11 @@ phase1_root() {
         success "Caddy instalado"
     fi
     
-    # Copia o script pra home do openclaw e executa fase 2
+    # Baixa o script pra home do openclaw e executa fase 2
     log "Passando para usuário $OPENCLAW_USER..."
     SCRIPT_PATH="$OPENCLAW_HOME/install.sh"
-    cp "$0" "$SCRIPT_PATH"
+    SCRIPT_URL="https://raw.githubusercontent.com/ijoaum/openclaw-ubuntu-installer/main/install.sh"
+    curl -sSL "$SCRIPT_URL" -o "$SCRIPT_PATH"
     chown "$OPENCLAW_USER:$OPENCLAW_USER" "$SCRIPT_PATH"
     chmod +x "$SCRIPT_PATH"
     
