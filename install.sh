@@ -416,15 +416,15 @@ Notes will be added as we get to know each other.
 `;
         fs.writeFileSync(userPath, userMd);
         
-        // Configura Caddy
-        const publicIP = execSync('curl -s ifconfig.me').toString().trim();
+        // Configura Caddy (salva config, mas não recarrega agora pois wizard usa porta 80)
+        const publicIP = execSync("hostname -I | awk '{print $1}'").toString().trim();
         const caddyConfig = `${publicIP} {
     reverse_proxy localhost:18789
 }
 `;
         fs.writeFileSync('/tmp/Caddyfile', caddyConfig);
         execSync('sudo mv /tmp/Caddyfile /etc/caddy/Caddyfile');
-        execSync('sudo systemctl reload caddy');
+        // Caddy será iniciado quando wizard encerrar
         
         // Se WhatsApp habilitado, redireciona pra página de pairing
         if (whatsappEnabled === 'on') {
@@ -435,12 +435,11 @@ Notes will be added as we get to know each other.
                 publicIP
             });
         } else {
-            // Inicia OpenClaw
-            execSync('sudo systemctl start openclaw || true');
             res.json({ 
                 success: true, 
                 next: 'done',
-                url: `http://${publicIP}/?token=${gatewayToken}`
+                gatewayToken,
+                publicIP
             });
         }
         
@@ -476,23 +475,26 @@ app.post('/whatsapp/pair', (req, res) => {
 // Finaliza setup
 app.post('/finish', (req, res) => {
     try {
-        const publicIP = execSync('curl -s ifconfig.me').toString().trim();
+        const publicIP = execSync("hostname -I | awk '{print $1}'").toString().trim();
         const configPath = path.join(HOME, '.openclaw', 'openclaw.json');
         const config = JSON.parse(fs.readFileSync(configPath));
-        
-        // Inicia/reinicia OpenClaw
-        execSync('sudo systemctl restart openclaw || sudo systemctl start openclaw || true');
         
         res.json({
             success: true,
             url: `http://${publicIP}/?token=${config.gateway.auth.token}`
         });
         
-        // Encerra wizard após 5 segundos
+        // Encerra wizard e inicia Caddy + OpenClaw após 3 segundos
         setTimeout(() => {
-            console.log('🦞 Wizard encerrado. OpenClaw rodando!');
+            console.log('🦞 Wizard encerrado. Iniciando OpenClaw...');
+            try {
+                execSync('sudo systemctl start caddy || true');
+                execSync('sudo systemctl restart openclaw || sudo systemctl start openclaw || true');
+            } catch (e) {
+                console.log('Erro ao iniciar serviços:', e.message);
+            }
             process.exit(0);
-        }, 5000);
+        }, 3000);
         
     } catch (error) {
         res.status(500).json({ error: error.message });
