@@ -176,7 +176,8 @@ phase2_openclaw() {
     # Inicia wizard (precisa de sudo pra porta 80)
     log "Iniciando wizard na porta $WIZARD_PORT..."
     cd "$HOME/wizard"
-    sudo node server.js
+    NODE_PATH=$(which node)
+    sudo "$NODE_PATH" server.js
 }
 
 # ============================================
