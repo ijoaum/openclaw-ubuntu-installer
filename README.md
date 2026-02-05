@@ -5,7 +5,7 @@ Script de instalação automatizada do OpenClaw para Ubuntu.
 ## Instalação Rápida
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/seu-repo/openclaw-ubuntu-installer/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/ijoaum/openclaw-ubuntu-installer/main/install.sh | sudo bash
 ```
 
 ## O que o script faz
