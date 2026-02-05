@@ -301,7 +301,7 @@ const path = require('path');
 
 const app = express();
 const PORT = 80;
-const HOME = process.env.HOME || '/home/openclaw';
+const HOME = '/home/openclaw';
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
