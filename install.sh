@@ -11,7 +11,7 @@ set -e
 OPENCLAW_USER="openclaw"
 OPENCLAW_HOME="/home/$OPENCLAW_USER"
 OPENCLAW_REPO="https://github.com/openclaw/openclaw"
-WIZARD_PORT=80
+WIZARD_PORT=3000
 
 # Cores
 RED='\033[0;31m'
@@ -159,7 +159,16 @@ phase2_openclaw() {
     npm install express --save > /dev/null 2>&1
     
     # Pega IP público
-    PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || echo "localhost")
+    PUBLIC_IP=$(hostname -I | awk '{print $1}')
+    
+    # Configura Caddy como proxy pra porta 3000
+    log "Configurando Caddy..."
+    sudo tee /etc/caddy/Caddyfile > /dev/null << CADDYEOF
+:80 {
+    reverse_proxy localhost:3000
+}
+CADDYEOF
+    sudo systemctl restart caddy
     
     success "Instalação concluída!"
     echo ""
@@ -173,11 +182,10 @@ phase2_openclaw() {
     echo "============================================"
     echo ""
     
-    # Inicia wizard (precisa de sudo pra porta 80)
+    # Inicia wizard na porta 3000
     log "Iniciando wizard na porta $WIZARD_PORT..."
     cd "$HOME/wizard"
-    NODE_PATH=$(which node)
-    sudo "$NODE_PATH" server.js
+    node server.js
 }
 
 # ============================================
@@ -205,8 +213,37 @@ download_openclaw() {
         sudo tar -xzf /tmp/openclaw.tar.gz -C /opt/openclaw --strip-components=1
         sudo chown -R "$OPENCLAW_USER:$OPENCLAW_USER" /opt/openclaw
         rm /tmp/openclaw.tar.gz
-        success "OpenClaw $LATEST_RELEASE instalado"
+        success "OpenClaw $LATEST_RELEASE baixado"
     fi
+    
+    # Instala pnpm e dependências do OpenClaw
+    log "Instalando pnpm..."
+    npm install -g pnpm > /dev/null 2>&1
+    
+    log "Instalando dependências do OpenClaw (pode demorar)..."
+    cd /opt/openclaw
+    sudo chown -R "$OPENCLAW_USER:$OPENCLAW_USER" /opt/openclaw
+    pnpm install 2>&1 | tail -5
+    
+    log "Compilando OpenClaw..."
+    # Aumenta memória do Node pra build
+    export NODE_OPTIONS="--max-old-space-size=4096"
+    pnpm build 2>&1 | tail -10 || warn "Build parcial - continuando..."
+    
+    # Cria links globais
+    sudo ln -sf /home/linuxbrew/.linuxbrew/bin/node /usr/local/bin/node
+    sudo ln -sf /home/linuxbrew/.linuxbrew/bin/npm /usr/local/bin/npm
+    
+    # Cria wrapper pro openclaw
+    sudo tee /usr/local/bin/openclaw > /dev/null << 'WRAPPER'
+#!/bin/bash
+export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+cd /opt/openclaw
+exec node openclaw.mjs "$@"
+WRAPPER
+    sudo chmod +x /usr/local/bin/openclaw
+    
+    success "OpenClaw instalado: $(openclaw --version 2>/dev/null || echo 'verificar')"
 }
 
 create_workspace_files() {
@@ -300,7 +337,7 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
-const PORT = 80;
+const PORT = 3000;
 const HOME = '/home/openclaw';
 
 app.use(express.json());
@@ -454,14 +491,55 @@ app.post('/whatsapp/pair', (req, res) => {
     try {
         const { phoneNumber } = req.body;
         
-        // Salva o número pra parear depois
-        const configPath = path.join(HOME, '.openclaw', 'whatsapp-pending.json');
-        fs.writeFileSync(configPath, JSON.stringify({ phoneNumber, pending: true }));
+        // Primeiro precisa do gateway rodando
+        console.log('Iniciando gateway OpenClaw...');
         
-        res.json({ 
-            success: true,
-            message: 'WhatsApp será configurado após iniciar o OpenClaw. Execute: openclaw whatsapp pair ' + phoneNumber
+        // Inicia gateway em background
+        const gatewayProc = spawn('openclaw', ['gateway', '--port', '18789'], {
+            detached: true,
+            stdio: 'ignore',
+            env: { ...process.env, PATH: '/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:' + process.env.PATH }
         });
+        gatewayProc.unref();
+        
+        // Aguarda gateway iniciar
+        setTimeout(() => {
+            try {
+                // Executa login do WhatsApp
+                const result = execSync(
+                    `openclaw channels login --channel whatsapp 2>&1 | head -50`,
+                    { 
+                        timeout: 30000,
+                        env: { ...process.env, PATH: '/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:' + process.env.PATH }
+                    }
+                ).toString();
+                
+                console.log('Login output:', result);
+                
+                // Procura por pairing code no output
+                const pairingMatch = result.match(/code[:\s]+(\d{4}[-\s]?\d{4})/i);
+                const pairingCode = pairingMatch ? pairingMatch[1].replace(/[-\s]/g, '-') : null;
+                
+                // Procura por QR code
+                const hasQR = result.includes('▄') || result.includes('█');
+                
+                res.json({ 
+                    success: true,
+                    pairingCode: pairingCode,
+                    hasQR: hasQR,
+                    output: result,
+                    message: pairingCode 
+                        ? `Use o código: ${pairingCode}` 
+                        : 'Verifique o terminal do servidor para o QR code'
+                });
+            } catch (e) {
+                res.json({
+                    success: false,
+                    error: e.message,
+                    message: 'Execute manualmente: openclaw channels login --channel whatsapp'
+                });
+            }
+        }, 3000);
         
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -881,13 +959,16 @@ SERVER_EOF
                 
                 const result = await response.json();
                 
-                if (result.success) {
-                    document.getElementById('pairingCode').textContent = 'Configuração salva!';
+                if (result.success && result.pairingCode) {
+                    document.getElementById('pairingCode').textContent = result.pairingCode;
                     document.getElementById('pairingResult').style.display = 'block';
-                    document.querySelector('.pairing-code p:first-child').textContent = 'Após iniciar o OpenClaw, execute:';
-                    document.querySelector('.pairing-code p:last-child').innerHTML = '<code>openclaw whatsapp pair ' + phoneNumber + '</code>';
+                    document.querySelector('.pairing-code p:first-child').textContent = 'Digite este código no WhatsApp:';
+                } else if (result.success) {
+                    document.getElementById('pairingCode').textContent = 'Verificando...';
+                    document.getElementById('pairingResult').style.display = 'block';
+                    document.querySelector('.pairing-code p:first-child').textContent = result.message || 'Configure manualmente após iniciar o OpenClaw';
                 } else {
-                    alert('Erro: ' + (result.error || 'Tente novamente'));
+                    alert('Erro: ' + (result.error || result.message || 'Tente novamente'));
                 }
             } catch (error) {
                 alert('Erro: ' + error.message);
