@@ -501,7 +501,7 @@ app.post('/finish', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
     try {
-        const ip = require('child_process').execSync('curl -s -4 icanhazip.com').toString().trim();
+        const ip = require('child_process').execSync("hostname -I | awk '{print $1}'").toString().trim();
         console.log('🦞 Wizard rodando em http://' + ip);
     } catch (e) {
         console.log('🦞 Wizard rodando na porta ' + PORT);
