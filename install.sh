@@ -454,17 +454,13 @@ app.post('/whatsapp/pair', (req, res) => {
     try {
         const { phoneNumber } = req.body;
         
-        // Executa comando de pairing
-        const result = execSync(`openclaw whatsapp pair ${phoneNumber} 2>&1 || true`).toString();
-        
-        // Extrai código de pairing
-        const pairingCodeMatch = result.match(/pairing code:\s*(\S+)/i);
-        const pairingCode = pairingCodeMatch ? pairingCodeMatch[1] : null;
+        // Salva o número pra parear depois
+        const configPath = path.join(HOME, '.openclaw', 'whatsapp-pending.json');
+        fs.writeFileSync(configPath, JSON.stringify({ phoneNumber, pending: true }));
         
         res.json({ 
             success: true,
-            output: result,
-            pairingCode
+            message: 'WhatsApp será configurado após iniciar o OpenClaw. Execute: openclaw whatsapp pair ' + phoneNumber
         });
         
     } catch (error) {
@@ -885,11 +881,13 @@ SERVER_EOF
                 
                 const result = await response.json();
                 
-                if (result.pairingCode) {
-                    document.getElementById('pairingCode').textContent = result.pairingCode;
+                if (result.success) {
+                    document.getElementById('pairingCode').textContent = 'Configuração salva!';
                     document.getElementById('pairingResult').style.display = 'block';
+                    document.querySelector('.pairing-code p:first-child').textContent = 'Após iniciar o OpenClaw, execute:';
+                    document.querySelector('.pairing-code p:last-child').innerHTML = '<code>openclaw whatsapp pair ' + phoneNumber + '</code>';
                 } else {
-                    alert('Não foi possível gerar o código. Tente novamente.');
+                    alert('Erro: ' + (result.error || 'Tente novamente'));
                 }
             } catch (error) {
                 alert('Erro: ' + error.message);
