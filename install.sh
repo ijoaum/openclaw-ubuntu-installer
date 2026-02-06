@@ -193,7 +193,7 @@ services:
     restart: unless-stopped
     volumes:
       # Workspace e config
-      - ~/.openclaw:/home/openclaw/.openclaw
+      - /home/openclaw/.openclaw:/home/openclaw/.openclaw
       # Socket do Docker pro elevated mode
       - /var/run/docker.sock:/var/run/docker.sock
       # Acesso ao host filesystem (read-only por padrão)
