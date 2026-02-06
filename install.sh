@@ -91,13 +91,15 @@ phase1_root() {
     # Baixa o script pra home do openclaw e executa fase 2
     log "Passando para usuário $OPENCLAW_USER..."
     SCRIPT_PATH="$OPENCLAW_HOME/install.sh"
-    SCRIPT_URL="https://raw.githubusercontent.com/ijoaum/openclaw-ubuntu-installer/main/install.sh"
+    # Detecta branch atual (pra testes) ou usa main
+    BRANCH="${OPENCLAW_INSTALL_BRANCH:-main}"
+    SCRIPT_URL="https://raw.githubusercontent.com/ijoaum/openclaw-ubuntu-installer/$BRANCH/install.sh"
     curl -sSL "$SCRIPT_URL" -o "$SCRIPT_PATH"
     chown "$OPENCLAW_USER:$OPENCLAW_USER" "$SCRIPT_PATH"
     chmod +x "$SCRIPT_PATH"
     
     # Executa fase 2 como openclaw
-    exec su - "$OPENCLAW_USER" -c "bash $SCRIPT_PATH --phase2"
+    exec su - "$OPENCLAW_USER" -c "OPENCLAW_INSTALL_BRANCH=$BRANCH bash $SCRIPT_PATH --phase2"
 }
 
 # ============================================
