@@ -11,7 +11,6 @@ set -e
 OPENCLAW_USER="openclaw"
 OPENCLAW_HOME="/home/$OPENCLAW_USER"
 OPENCLAW_REPO="https://github.com/openclaw/openclaw"
-WIZARD_PORT=80
 
 # Cores
 RED='\033[0;31m'
@@ -173,11 +172,20 @@ phase2_openclaw() {
     echo "============================================"
     echo ""
     
-    # Inicia wizard (precisa de sudo pra porta 80)
-    log "Iniciando wizard na porta $WIZARD_PORT..."
+    # Configura Caddy para proxy do wizard na porta 3000
+    log "Configurando Caddy..."
+    sudo tee /etc/caddy/Caddyfile > /dev/null << 'CADDYFILE'
+:80 {
+    reverse_proxy localhost:3000
+}
+CADDYFILE
+    sudo systemctl reload caddy || sudo systemctl restart caddy
+    
+    # Inicia wizard na porta 3000
+    log "Iniciando wizard na porta 3000..."
     cd "$HOME/wizard"
     NODE_PATH=$(which node)
-    sudo "$NODE_PATH" server.js
+    "$NODE_PATH" server.js
 }
 
 # ============================================
@@ -300,7 +308,7 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
-const PORT = 80;
+const PORT = 3000;
 const HOME = '/home/openclaw';
 
 app.use(express.json());
