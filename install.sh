@@ -10,7 +10,6 @@ set -e
 
 OPENCLAW_USER="openclaw"
 OPENCLAW_HOME="/home/$OPENCLAW_USER"
-OPENCLAW_REPO="https://github.com/openclaw/openclaw"
 
 # Cores
 RED='\033[0;31m'
@@ -102,46 +101,17 @@ phase1_root() {
 }
 
 # ============================================
-# FASE 2: OPENCLAW - Configura o ambiente
+# FASE 2: OPENCLAW - Configura o ambiente (Docker)
 # ============================================
 phase2_openclaw() {
     log "Executando como $(whoami)..."
     cd "$HOME"
-    
-    # Instala Homebrew
-    if command -v brew &>/dev/null; then
-        log "Homebrew já instalado"
-    else
-        log "Instalando Homebrew..."
-        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        
-        # Configura PATH do Homebrew
-        echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> "$HOME/.bashrc"
-        eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-        success "Homebrew instalado"
-    fi
-    
-    # Garante que brew está no PATH
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null || true
-    
-    # Instala Node.js via Homebrew
-    if command -v node &>/dev/null; then
-        log "Node.js já instalado: $(node --version)"
-    else
-        log "Instalando Node.js..."
-        brew install node
-        success "Node.js instalado: $(node --version)"
-    fi
     
     # Cria estrutura de diretórios
     log "Criando estrutura de diretórios..."
     mkdir -p "$HOME/.openclaw/workspace/memory"
     mkdir -p "$HOME/.openclaw/credentials"
     mkdir -p "$HOME/wizard/public"
-    
-    # Baixa última release do OpenClaw
-    log "Baixando OpenClaw (última release)..."
-    download_openclaw
     
     # Cria arquivos base do workspace
     log "Criando arquivos do workspace..."
@@ -151,11 +121,14 @@ phase2_openclaw() {
     log "Criando wizard de configuração..."
     create_wizard
     
-    # Instala dependências do wizard
-    log "Instalando dependências do wizard..."
-    cd "$HOME/wizard"
-    npm init -y > /dev/null 2>&1
-    npm install express --save > /dev/null 2>&1
+    # Puxa imagem do OpenClaw
+    log "Baixando imagem Docker do OpenClaw..."
+    docker pull ghcr.io/openclaw/openclaw:latest
+    success "Imagem Docker baixada"
+    
+    # Cria docker-compose.yml
+    log "Criando docker-compose.yml..."
+    create_docker_compose
     
     # Pega IP público
     PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || echo "localhost")
@@ -181,40 +154,57 @@ phase2_openclaw() {
 CADDYFILE
     sudo systemctl reload caddy || sudo systemctl restart caddy
     
-    # Inicia wizard na porta 3000
+    # Inicia wizard via Docker (container temporário com Node)
     log "Iniciando wizard na porta 3000..."
     cd "$HOME/wizard"
-    NODE_PATH=$(which node)
-    "$NODE_PATH" server.js
+    docker run --rm -d \
+        --name openclaw-wizard \
+        -p 3000:3000 \
+        -v "$HOME/wizard:/app" \
+        -v "$HOME/.openclaw:/home/openclaw/.openclaw" \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -w /app \
+        node:22-slim \
+        sh -c "npm install express && node server.js"
+    
+    success "Wizard rodando em http://$PUBLIC_IP"
+    log "Logs: docker logs -f openclaw-wizard"
 }
 
 # ============================================
 # Funções auxiliares
 # ============================================
 
-download_openclaw() {
-    # Pega última release do GitHub
-    LATEST_RELEASE=$(curl -s https://api.github.com/repos/openclaw/openclaw/releases/latest | jq -r '.tag_name' 2>/dev/null)
-    
-    if [ -z "$LATEST_RELEASE" ] || [ "$LATEST_RELEASE" = "null" ]; then
-        warn "Não consegui pegar última release, clonando repo..."
-        if [ -d "/opt/openclaw" ]; then
-            log "OpenClaw já existe em /opt/openclaw"
-        else
-            sudo git clone "$OPENCLAW_REPO" /opt/openclaw
-            sudo chown -R "$OPENCLAW_USER:$OPENCLAW_USER" /opt/openclaw
-        fi
-    else
-        log "Última release: $LATEST_RELEASE"
-        # Baixa e extrai release
-        DOWNLOAD_URL="https://github.com/openclaw/openclaw/archive/refs/tags/$LATEST_RELEASE.tar.gz"
-        curl -sL "$DOWNLOAD_URL" -o /tmp/openclaw.tar.gz
-        sudo mkdir -p /opt/openclaw
-        sudo tar -xzf /tmp/openclaw.tar.gz -C /opt/openclaw --strip-components=1
-        sudo chown -R "$OPENCLAW_USER:$OPENCLAW_USER" /opt/openclaw
-        rm /tmp/openclaw.tar.gz
-        success "OpenClaw $LATEST_RELEASE instalado"
-    fi
+create_docker_compose() {
+    cat > "$HOME/docker-compose.yml" << 'COMPOSE_EOF'
+version: '3.8'
+
+services:
+  openclaw:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: openclaw
+    restart: unless-stopped
+    volumes:
+      # Workspace e config
+      - ~/.openclaw:/home/openclaw/.openclaw
+      # Socket do Docker pro elevated mode
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Acesso ao host filesystem (read-only por padrão)
+      - /:/host:ro
+    environment:
+      - OPENCLAW_ELEVATED_HOST=true
+      - HOME=/home/openclaw
+    ports:
+      - "18789:18789"
+    networks:
+      - openclaw
+
+networks:
+  openclaw:
+    driver: bridge
+COMPOSE_EOF
+
+    success "docker-compose.yml criado"
 }
 
 create_workspace_files() {
@@ -488,12 +478,18 @@ app.post('/finish', (req, res) => {
             url: `http://${publicIP}/?token=${config.gateway.auth.token}`
         });
         
-        // Encerra wizard e inicia Caddy + OpenClaw após 3 segundos
+        // Encerra wizard e inicia OpenClaw via Docker após 3 segundos
         setTimeout(() => {
-            console.log('🦞 Wizard encerrado. Iniciando OpenClaw...');
+            console.log('🦞 Wizard encerrado. Iniciando OpenClaw via Docker...');
             try {
-                execSync('sudo systemctl start caddy || true');
-                execSync('sudo systemctl restart openclaw || sudo systemctl start openclaw || true');
+                // Atualiza Caddyfile pra apontar pro gateway
+                execSync(`echo ':80 {
+    reverse_proxy localhost:18789
+}' | sudo tee /etc/caddy/Caddyfile`);
+                execSync('sudo systemctl reload caddy || sudo systemctl restart caddy');
+                
+                // Inicia OpenClaw via docker-compose
+                execSync('cd /home/openclaw && docker compose up -d');
             } catch (e) {
                 console.log('Erro ao iniciar serviços:', e.message);
             }
