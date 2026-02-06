@@ -354,14 +354,14 @@ app.post('/configure', async (req, res) => {
         if (provider === 'anthropic') {
             config.auth.profiles['anthropic:default'] = {
                 provider: 'anthropic',
-                mode: 'token',
-                token: apiKey
+                mode: 'key',
+                key: apiKey
             };
         } else if (provider === 'openai') {
             config.auth.profiles['openai:default'] = {
                 provider: 'openai',
-                mode: 'token',
-                token: apiKey
+                mode: 'key',
+                key: apiKey
             };
         } else if (provider === 'github-copilot') {
             config.auth.profiles['github-copilot:default'] = {
