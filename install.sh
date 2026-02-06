@@ -350,24 +350,40 @@ app.post('/configure', async (req, res) => {
             }
         };
         
-        // Configura provider
+        // Salva credenciais em arquivo separado (OpenClaw não aceita keys inline na config)
+        const credPath = path.join(HOME, '.openclaw', 'credentials');
+        if (!fs.existsSync(credPath)) {
+            fs.mkdirSync(credPath, { recursive: true });
+        }
+        
+        // Configura provider - salva API key como env var pro docker-compose
+        let envVars = [];
         if (provider === 'anthropic') {
             config.auth.profiles['anthropic:default'] = {
-                provider: 'anthropic',
-                mode: 'key',
-                key: apiKey
+                provider: 'anthropic'
             };
+            envVars.push(`ANTHROPIC_API_KEY=${apiKey}`);
         } else if (provider === 'openai') {
             config.auth.profiles['openai:default'] = {
-                provider: 'openai',
-                mode: 'key',
-                key: apiKey
+                provider: 'openai'
             };
+            envVars.push(`OPENAI_API_KEY=${apiKey}`);
         } else if (provider === 'github-copilot') {
             config.auth.profiles['github-copilot:default'] = {
                 provider: 'github-copilot',
                 mode: 'oauth'
             };
+        }
+        
+        // Atualiza docker-compose.yml com env vars
+        if (envVars.length > 0) {
+            let compose = fs.readFileSync(path.join(HOME, 'docker-compose.yml'), 'utf8');
+            const envSection = envVars.map(e => `      - ${e}`).join('\\n');
+            compose = compose.replace(
+                '      - HOME=/home/openclaw',
+                `      - HOME=/home/openclaw\\n${envSection}`
+            );
+            fs.writeFileSync(path.join(HOME, 'docker-compose.yml'), compose);
         }
         
         // Configura canais
