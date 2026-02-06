@@ -91,13 +91,15 @@ phase1_root() {
     # Baixa o script pra home do openclaw e executa fase 2
     log "Passando para usuário $OPENCLAW_USER..."
     SCRIPT_PATH="$OPENCLAW_HOME/install.sh"
-    SCRIPT_URL="https://raw.githubusercontent.com/ijoaum/openclaw-ubuntu-installer/main/install.sh"
+    # Detecta branch atual (pra testes) ou usa main
+    BRANCH="${OPENCLAW_INSTALL_BRANCH:-main}"
+    SCRIPT_URL="https://raw.githubusercontent.com/ijoaum/openclaw-ubuntu-installer/$BRANCH/install.sh"
     curl -sSL "$SCRIPT_URL" -o "$SCRIPT_PATH"
     chown "$OPENCLAW_USER:$OPENCLAW_USER" "$SCRIPT_PATH"
     chmod +x "$SCRIPT_PATH"
     
     # Executa fase 2 como openclaw
-    exec su - "$OPENCLAW_USER" -c "bash $SCRIPT_PATH --phase2"
+    exec su - "$OPENCLAW_USER" -c "OPENCLAW_INSTALL_BRANCH=$BRANCH bash $SCRIPT_PATH --phase2"
 }
 
 # ============================================
@@ -111,7 +113,17 @@ phase2_openclaw() {
     log "Criando estrutura de diretórios..."
     mkdir -p "$HOME/.openclaw/workspace/memory"
     mkdir -p "$HOME/.openclaw/credentials"
-    mkdir -p "$HOME/wizard/public"
+    mkdir -p "$HOME/wizard"
+    
+    # Instala Node.js pra rodar o wizard
+    if command -v node &>/dev/null; then
+        log "Node.js já instalado: $(node --version)"
+    else
+        log "Instalando Node.js..."
+        curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+        sudo apt-get install -y nodejs
+        success "Node.js instalado: $(node --version)"
+    fi
     
     # Cria arquivos base do workspace
     log "Criando arquivos do workspace..."
@@ -120,6 +132,12 @@ phase2_openclaw() {
     # Cria wizard web
     log "Criando wizard de configuração..."
     create_wizard
+    
+    # Instala dependências do wizard
+    log "Instalando dependências do wizard..."
+    cd "$HOME/wizard"
+    npm init -y > /dev/null 2>&1
+    npm install express > /dev/null 2>&1
     
     # Puxa imagem do OpenClaw
     log "Baixando imagem Docker do OpenClaw..."
@@ -154,21 +172,10 @@ phase2_openclaw() {
 CADDYFILE
     sudo systemctl reload caddy || sudo systemctl restart caddy
     
-    # Inicia wizard via Docker (container temporário com Node)
+    # Inicia wizard na porta 3000 (roda no host, não em container)
     log "Iniciando wizard na porta 3000..."
     cd "$HOME/wizard"
-    docker run --rm -d \
-        --name openclaw-wizard \
-        -p 3000:3000 \
-        -v "$HOME/wizard:/app" \
-        -v "$HOME/.openclaw:/home/openclaw/.openclaw" \
-        -v /var/run/docker.sock:/var/run/docker.sock \
-        -w /app \
-        node:22-slim \
-        sh -c "npm install express && node server.js"
-    
-    success "Wizard rodando em http://$PUBLIC_IP"
-    log "Logs: docker logs -f openclaw-wizard"
+    node server.js
 }
 
 # ============================================
@@ -420,8 +427,14 @@ Notes will be added as we get to know each other.
     reverse_proxy localhost:18789
 }
 `;
+        // Salva Caddyfile (openclaw tem sudo sem senha)
         fs.writeFileSync('/tmp/Caddyfile', caddyConfig);
-        execSync('sudo mv /tmp/Caddyfile /etc/caddy/Caddyfile');
+        try {
+            execSync('sudo mv /tmp/Caddyfile /etc/caddy/Caddyfile');
+            execSync('sudo systemctl reload caddy || sudo systemctl restart caddy');
+        } catch (e) {
+            console.log('Aviso: não conseguiu atualizar Caddy automaticamente:', e.message);
+        }
         // Caddy será iniciado quando wizard encerrar
         
         // Se WhatsApp habilitado, redireciona pra página de pairing
@@ -483,10 +496,13 @@ app.post('/finish', (req, res) => {
             console.log('🦞 Wizard encerrado. Iniciando OpenClaw via Docker...');
             try {
                 // Atualiza Caddyfile pra apontar pro gateway
-                execSync(`echo ':80 {
-    reverse_proxy localhost:18789
-}' | sudo tee /etc/caddy/Caddyfile`);
-                execSync('sudo systemctl reload caddy || sudo systemctl restart caddy');
+                fs.writeFileSync('/tmp/Caddyfile', ':80 {\\n    reverse_proxy localhost:18789\\n}\\n');
+                try {
+                    execSync('sudo mv /tmp/Caddyfile /etc/caddy/Caddyfile');
+                    execSync('sudo systemctl reload caddy || sudo systemctl restart caddy');
+                } catch (e) {
+                    console.log('Aviso: não conseguiu atualizar Caddy:', e.message);
+                }
                 
                 // Inicia OpenClaw via docker-compose
                 execSync('cd /home/openclaw && docker compose up -d');
@@ -512,6 +528,7 @@ app.listen(PORT, '0.0.0.0', () => {
 SERVER_EOF
 
     # index.html
+    mkdir -p "$HOME/wizard/public"
     cat > "$HOME/wizard/public/index.html" << 'HTML_EOF'
 <!DOCTYPE html>
 <html lang="pt-BR">
