@@ -418,7 +418,7 @@ Notes will be added as we get to know each other.
         
         // Configura Caddy (salva config, mas não recarrega agora pois wizard usa porta 80)
         const publicIP = execSync("hostname -I | awk '{print $1}'").toString().trim();
-        const caddyConfig = `${publicIP} {
+        const caddyConfig = `:80 {
     reverse_proxy localhost:18789
 }
 `;
