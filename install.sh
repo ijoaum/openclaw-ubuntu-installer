@@ -427,8 +427,14 @@ Notes will be added as we get to know each other.
     reverse_proxy localhost:18789
 }
 `;
+        // Salva Caddyfile (openclaw tem sudo sem senha)
         fs.writeFileSync('/tmp/Caddyfile', caddyConfig);
-        execSync('sudo mv /tmp/Caddyfile /etc/caddy/Caddyfile');
+        try {
+            execSync('sudo mv /tmp/Caddyfile /etc/caddy/Caddyfile');
+            execSync('sudo systemctl reload caddy || sudo systemctl restart caddy');
+        } catch (e) {
+            console.log('Aviso: não conseguiu atualizar Caddy automaticamente:', e.message);
+        }
         // Caddy será iniciado quando wizard encerrar
         
         // Se WhatsApp habilitado, redireciona pra página de pairing
@@ -490,10 +496,13 @@ app.post('/finish', (req, res) => {
             console.log('🦞 Wizard encerrado. Iniciando OpenClaw via Docker...');
             try {
                 // Atualiza Caddyfile pra apontar pro gateway
-                execSync(`echo ':80 {
-    reverse_proxy localhost:18789
-}' | sudo tee /etc/caddy/Caddyfile`);
-                execSync('sudo systemctl reload caddy || sudo systemctl restart caddy');
+                fs.writeFileSync('/tmp/Caddyfile', ':80 {\\n    reverse_proxy localhost:18789\\n}\\n');
+                try {
+                    execSync('sudo mv /tmp/Caddyfile /etc/caddy/Caddyfile');
+                    execSync('sudo systemctl reload caddy || sudo systemctl restart caddy');
+                } catch (e) {
+                    console.log('Aviso: não conseguiu atualizar Caddy:', e.message);
+                }
                 
                 // Inicia OpenClaw via docker-compose
                 execSync('cd /home/openclaw && docker compose up -d');
