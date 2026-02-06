@@ -360,12 +360,14 @@ app.post('/configure', async (req, res) => {
         let envVars = [];
         if (provider === 'anthropic') {
             config.auth.profiles['anthropic:default'] = {
-                provider: 'anthropic'
+                provider: 'anthropic',
+                mode: 'token'
             };
             envVars.push(`ANTHROPIC_API_KEY=${apiKey}`);
         } else if (provider === 'openai') {
             config.auth.profiles['openai:default'] = {
-                provider: 'openai'
+                provider: 'openai',
+                mode: 'token'
             };
             envVars.push(`OPENAI_API_KEY=${apiKey}`);
         } else if (provider === 'github-copilot') {
@@ -378,7 +380,7 @@ app.post('/configure', async (req, res) => {
         // Atualiza docker-compose.yml com env vars
         if (envVars.length > 0) {
             let compose = fs.readFileSync(path.join(HOME, 'docker-compose.yml'), 'utf8');
-            const envSection = envVars.map(e => `      - ${e}`).join('\\n');
+            const envSection = envVars.map(e => `      - ${e}`).join('\n');
             compose = compose.replace(
                 '      - HOME=/home/openclaw',
                 `      - HOME=/home/openclaw\\n${envSection}`
@@ -512,7 +514,7 @@ app.post('/finish', (req, res) => {
             console.log('🦞 Wizard encerrado. Iniciando OpenClaw via Docker...');
             try {
                 // Atualiza Caddyfile pra apontar pro gateway
-                fs.writeFileSync('/tmp/Caddyfile', ':80 {\\n    reverse_proxy localhost:18789\\n}\\n');
+                fs.writeFileSync('/tmp/Caddyfile', ':80 {\n    reverse_proxy localhost:18789\n}\n');
                 try {
                     execSync('sudo mv /tmp/Caddyfile /etc/caddy/Caddyfile');
                     execSync('sudo systemctl reload caddy || sudo systemctl restart caddy');
@@ -521,7 +523,8 @@ app.post('/finish', (req, res) => {
                 }
                 
                 // Inicia OpenClaw via docker-compose
-                execSync('cd /home/openclaw && docker compose up -d');
+                execSync('cd /home/openclaw && docker compose up -d', { stdio: 'inherit' });
+                console.log('🦞 OpenClaw iniciado com sucesso!');
             } catch (e) {
                 console.log('Erro ao iniciar serviços:', e.message);
             }
