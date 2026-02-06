@@ -380,10 +380,10 @@ app.post('/configure', async (req, res) => {
         // Atualiza docker-compose.yml com env vars
         if (envVars.length > 0) {
             let compose = fs.readFileSync(path.join(HOME, 'docker-compose.yml'), 'utf8');
-            const envSection = envVars.map(e => `      - ${e}`).join('\n');
+            const envSection = envVars.map(e => '      - ' + e).join(String.fromCharCode(10));
             compose = compose.replace(
                 '      - HOME=/home/openclaw',
-                `      - HOME=/home/openclaw\\n${envSection}`
+                '      - HOME=/home/openclaw' + String.fromCharCode(10) + envSection
             );
             fs.writeFileSync(path.join(HOME, 'docker-compose.yml'), compose);
         }
