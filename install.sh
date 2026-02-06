@@ -10,7 +10,6 @@ set -e
 
 OPENCLAW_USER="openclaw"
 OPENCLAW_HOME="/home/$OPENCLAW_USER"
-OPENCLAW_REPO="https://github.com/openclaw/openclaw"
 
 # Cores
 RED='\033[0;31m'
@@ -193,27 +192,16 @@ CADDYFILE
 # ============================================
 
 download_openclaw() {
-    # Pega última release do GitHub
-    LATEST_RELEASE=$(curl -s https://api.github.com/repos/openclaw/openclaw/releases/latest | jq -r '.tag_name' 2>/dev/null)
+    # Instala OpenClaw via npm (método oficial)
+    log "Instalando OpenClaw via npm..."
+    npm install -g openclaw
     
-    if [ -z "$LATEST_RELEASE" ] || [ "$LATEST_RELEASE" = "null" ]; then
-        warn "Não consegui pegar última release, clonando repo..."
-        if [ -d "/opt/openclaw" ]; then
-            log "OpenClaw já existe em /opt/openclaw"
-        else
-            sudo git clone "$OPENCLAW_REPO" /opt/openclaw
-            sudo chown -R "$OPENCLAW_USER:$OPENCLAW_USER" /opt/openclaw
-        fi
+    # Verifica instalação
+    if command -v openclaw &>/dev/null; then
+        OPENCLAW_VERSION=$(openclaw --version 2>/dev/null || echo "unknown")
+        success "OpenClaw $OPENCLAW_VERSION instalado"
     else
-        log "Última release: $LATEST_RELEASE"
-        # Baixa e extrai release
-        DOWNLOAD_URL="https://github.com/openclaw/openclaw/archive/refs/tags/$LATEST_RELEASE.tar.gz"
-        curl -sL "$DOWNLOAD_URL" -o /tmp/openclaw.tar.gz
-        sudo mkdir -p /opt/openclaw
-        sudo tar -xzf /tmp/openclaw.tar.gz -C /opt/openclaw --strip-components=1
-        sudo chown -R "$OPENCLAW_USER:$OPENCLAW_USER" /opt/openclaw
-        rm /tmp/openclaw.tar.gz
-        success "OpenClaw $LATEST_RELEASE instalado"
+        error "Falha ao instalar OpenClaw"
     fi
 }
 
